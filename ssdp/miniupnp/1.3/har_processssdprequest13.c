@@ -1,5 +1,13 @@
 /* test harness for ProcessSSDPRequest function, based on minissdp.c */
 
+
+/* $Id: minissdp.c,v 1.15 2008/11/24 09:48:00 nanard Exp $ */
+/* MiniUPnP project
+ * http://miniupnp.free.fr/ or http://miniupnp.tuxfamily.org/
+ * (c) 2006 Thomas Bernard
+ * This software is subject to the conditions detailed
+ * in the LICENCE file provided within the distribution */
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
