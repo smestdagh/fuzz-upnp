@@ -1,0 +1,9 @@
+NOTIFY * HTTP/1.1
+HOST: 239.255.255.250:1900
+CACHE-CONTROL: max-age=3600
+LOCATION: http://192.168.1.1/rootDesc.xml
+NT: upnp:rootdevice
+NTS: ssdp:update
+SERVER: Linux/4 UPnP/1.1 MiniUPnP/1.5
+USN: uuid:00000000-0000-0000-0000-000000000000::upnp:rootdevice
+

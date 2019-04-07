@@ -1,0 +1,9 @@
+HTTP/1.1 200 OK
+CACHE-CONTROL: max-age=3600
+DATE: Wed,  1 Feb 2017 02:07:36 GMT
+EXT: 
+LOCATION: http://192.168.1.1/rootDesc.xml
+SERVER: Linux/4 UPnP/1.1 MiniUPnP/1.5
+ST: upnp:rootdevice
+USN: uuid:00000000-0000-0000-0000-000000000000::upnp:rootdevice
+
