@@ -1,0 +1,269 @@
+diff -uNr libupnp-1.6.17/upnp/src/api/upnpapi.c libupnp-1.6.17-mod/upnp/src/api/upnpapi.c
+--- libupnp-1.6.17/upnp/src/api/upnpapi.c	Tue Apr  3 14:12:18 2012
++++ libupnp-1.6.17-mod/upnp/src/api/upnpapi.c	Mon Feb 18 20:56:14 2019
+@@ -779,15 +779,22 @@
+ 	int hasServiceTable = 0;
+ #endif /* EXCLUDE_GENA */
+ 
++	char *xml_buf = NULL;
++	FILE *fd = NULL;
++	int ret_code;
++	size_t mylen;
++
+ 	HandleLock();
+ 
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"Inside UpnpRegisterRootDevice\n");
+ 
++/*
+ 	if (UpnpSdkInit != 1) {
+ 		retVal = UPNP_E_FINISH;
+ 		goto exit_function;
+ 	}
++*/
+ 
+ 	if (Hnd == NULL ||
+ 	    Fun == NULL ||
+@@ -840,6 +847,7 @@
+ 	HInfo->MaxSubscriptionTimeOut = UPNP_INFINITE;
+ 	HInfo->DeviceAf = AF_INET;
+ 
++/*
+ 	retVal = UpnpDownloadXmlDoc(HInfo->DescURL, &(HInfo->DescDocument));
+ 	if (retVal != UPNP_E_SUCCESS) {
+ 		UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+@@ -847,10 +855,28 @@
+ 			retVal);
+ #ifdef INCLUDE_CLIENT_APIS
+ 		ListDestroy(&HInfo->SsdpSearchList, 0);
+-#endif /* INCLUDE_CLIENT_APIS */
+-		FreeHandle(*Hnd);
++#endif *//* INCLUDE_CLIENT_APIS */
++/*		FreeHandle(*Hnd);
+ 		goto exit_function;
+ 	}
++*/
++
++	/* just read a fixed description xml file */
++	xml_buf = malloc(2000);
++	if (xml_buf == NULL) {
++		printf("malloc failed!\n");
++		exit(1);
++	}
++	fd = fopen("tvdevicedesc.xml","r");
++	if (fd == NULL) {
++		printf("file open failed!\n");
++		exit(1);
++	}
++	mylen = fread(xml_buf, 1, 2000, fd);
++	xml_buf[mylen] = '\0';
++	ret_code = ixmlParseBufferEx(xml_buf, &(HInfo->DescDocument));
++	free(xml_buf);
++
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"UpnpRegisterRootDevice: Valid Description\n"
+ 		"UpnpRegisterRootDevice: DescURL : %s\n",
+diff -uNr libupnp-1.6.17/upnp/src/genlib/miniserver/miniserver.c libupnp-1.6.17-mod/upnp/src/genlib/miniserver/miniserver.c
+--- libupnp-1.6.17/upnp/src/genlib/miniserver/miniserver.c	Fri Mar 30 22:24:07 2012
++++ libupnp-1.6.17-mod/upnp/src/genlib/miniserver/miniserver.c	Mon Feb 18 20:53:27 2019
+@@ -323,9 +323,9 @@
+ 
+ static void ssdp_read(SOCKET rsock, fd_set *set)
+ {
+-	if (rsock != INVALID_SOCKET && FD_ISSET(rsock, set)) {
++/*	if (rsock != INVALID_SOCKET && FD_ISSET(rsock, set)) {*/
+ 		readFromSSDPSocket(rsock);
+-	}
++/*	}*/
+ }
+ 
+ static int receive_from_stopSock(SOCKET ssock, fd_set *set)
+diff -uNr libupnp-1.6.17/upnp/src/ssdp/ssdp_ctrlpt.c libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_ctrlpt.c
+--- libupnp-1.6.17/upnp/src/ssdp/ssdp_ctrlpt.c	Tue Apr  3 14:12:18 2012
++++ libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_ctrlpt.c	Mon Feb 18 20:26:56 2019
+@@ -285,6 +285,8 @@
+ 					threadData->cookie = searchArg->cookie;
+ 					threadData->ctrlpt_callback =
+ 					    ctrlpt_callback;
++					send_search_result(threadData);
++					/*
+ 					TPJobInit(&job, (start_routine)
+ 						  send_search_result,
+ 						  threadData);
+@@ -294,6 +296,7 @@
+ 							     free);
+ 					ThreadPoolAdd(&gRecvThreadPool, &job,
+ 						      NULL);
++					*/
+ 				}
+ 			}
+ 			node = ListNext(&ctrlpt_info->SsdpSearchList, node);
+diff -uNr libupnp-1.6.17/upnp/src/ssdp/ssdp_device.c libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_device.c
+--- libupnp-1.6.17/upnp/src/ssdp/ssdp_device.c	Fri Mar 16 16:01:01 2012
++++ libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_device.c	Mon Feb 18 20:38:59 2019
+@@ -117,19 +117,22 @@
+ 		/* bad ST header. */
+ 		return;
+ 
+-	HandleLock();
++	handle = 1;
++/*	HandleLock(); */
+ 	/* device info. */
++	/*
+ 	switch (GetDeviceHandleInfo((int)dest_addr->ss_family,
+ 				&handle, &dev_info)) {
+ 	case HND_DEVICE:
+ 		break;
+ 	default:
+-		HandleUnlock();
++		HandleUnlock();*/
+ 		/* no info found. */
+-		return;
++/*		return;
+ 	}
+ 	maxAge = dev_info->MaxAge;
+ 	HandleUnlock();
++	*/
+ 
+ 	UpnpPrintf(UPNP_PACKET, API, __FILE__, __LINE__,
+ 		   "MAX-AGE     =  %d\n", maxAge);
+@@ -149,12 +152,16 @@
+ 	threadArg->event = event;
+ 	threadArg->MaxAge = maxAge;
+ 
++	advertiseAndReplyThread(threadArg);
++	/*
+ 	TPJobInit(&job, advertiseAndReplyThread, threadArg);
+ 	TPJobSetFreeFunction(&job, (free_routine) free);
++	*/
+ 
+ 	/* Subtract a percentage from the mx to allow for network and processing
+ 	 * delays (i.e. if search is for 30 seconds, respond
+ 	 * within 0 - 27 seconds). */
++	/*
+ 	if (mx >= 2)
+ 		mx -= MAXVAL(1, mx / MX_FUDGE_FACTOR);
+ 	if (mx < 1)
+@@ -162,6 +169,7 @@
+ 	replyTime = rand() % mx;
+ 	TimerThreadSchedule(&gTimerThread, replyTime, REL_SEC, &job,
+ 			    SHORT_TERM, NULL);
++	*/
+ }
+ #endif
+ 
+@@ -629,7 +637,11 @@
+ 		}
+ 	}
+ 	/* send msgs */
+-	ret_code = NewRequestHandler(DestAddr, num_msgs, msgs);
++	ret_code = UPNP_E_SOCKET_WRITE;
++	for (i = 0; i < num_msgs; i++) {
++		printf("%s", msgs[i]);
++	}
++	/*ret_code = NewRequestHandler(DestAddr, num_msgs, msgs);*/
+ 
+ error_handler:
+ 	for (i = 0; i < num_msgs; i++) {
+@@ -689,9 +701,13 @@
+ 	}
+ 	/* send replies */
+ 	if (RootDev) {
+-		RetVal = NewRequestHandler(DestAddr, 3, szReq);
++		printf("%s",*szReq);
++		RetVal = UPNP_E_SOCKET_WRITE;
++		/*RetVal = NewRequestHandler(DestAddr, 3, szReq);*/
+ 	} else {
+-		RetVal = NewRequestHandler(DestAddr, 2, &szReq[1]);
++		printf("%s",szReq[1]);
++		RetVal = UPNP_E_SOCKET_WRITE;
++		/*RetVal = NewRequestHandler(DestAddr, 2, &szReq[1]);*/
+ 	}
+ 
+ error_handler:
+@@ -746,7 +762,9 @@
+ 	if (szReq[0] == NULL) {
+ 		goto error_handler;
+ 	}
+-	RetVal = NewRequestHandler((struct sockaddr *)&__ss, 1, szReq);
++	RetVal = UPNP_E_SOCKET_WRITE;
++	printf("%s", szReq[0]);
++	/*RetVal = NewRequestHandler((struct sockaddr *)&__ss, 1, szReq);*/
+ 
+ error_handler:
+ 	free(szReq[0]);
+@@ -772,7 +790,9 @@
+ 			    PowerState, SleepPeriod, RegistrationState);
+ 	if (szReq[0] == NULL)
+ 		goto error_handler;
+-	RetVal = NewRequestHandler(DestAddr, 1, szReq);
++	RetVal = UPNP_E_SOCKET_WRITE;
++	printf("%s", szReq[0]);
++	/*RetVal = NewRequestHandler(DestAddr, 1, szReq);*/
+ 
+ error_handler:
+ 	free(szReq[0]);
+diff -uNr libupnp-1.6.17/upnp/src/ssdp/ssdp_server.c libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_server.c
+--- libupnp-1.6.17/upnp/src/ssdp/ssdp_server.c	Fri Mar 16 16:01:01 2012
++++ libupnp-1.6.17-mod/upnp/src/ssdp/ssdp_server.c	Mon Feb 18 20:31:00 2019
+@@ -89,6 +89,10 @@
+ #ifdef INCLUDE_DEVICE_APIS
+ static const char SERVICELIST_STR[] = "serviceList";
+ 
++#define CLADDRHEX 0x6401a8c0 /* 192.168.1.100 */
++#define CLPORTHEX 0x3930     /* 12345 */
++#define CLADDR6HEX { 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0a } /* fe80::a */
++
+ int AdvertiseAndReply(int AdFlag, UpnpDevice_Handle Hnd,
+ 		      enum SsdpSearchType SearchType,
+ 		      struct sockaddr *DestAddr, char *DeviceType,
+@@ -732,8 +736,16 @@
+ 			data = NULL;
+ 		}
+ 	}
+-	byteReceived = recvfrom(socket, requestBuf, BUFSIZE - (size_t)1, 0,
+-				(struct sockaddr *)&__ss, &socklen);
++/*	byteReceived = recvfrom(socket, requestBuf, BUFSIZE - (size_t)1, 0,
++				(struct sockaddr *)&__ss, &socklen); */
++	/* read from stdin for AFL */
++	byteReceived = read(0, requestBuf, BUFSIZE - (size_t)1);
++	struct sockaddr_in mytemp = { AF_INET, CLPORTHEX, { CLADDRHEX } };
++	char mytemp2[48];
++	memset(mytemp2, 0, 48);
++	memcpy(mytemp2, &mytemp, sizeof(mytemp));
++	__ss = *((struct sockaddr_storage*) (mytemp2));
++
+ 	if (byteReceived > 0) {
+ 		requestBuf[byteReceived] = '\0';
+ 		switch (__ss.ss_family) {
+@@ -743,11 +755,13 @@
+ 				  ntop_buf, sizeof(ntop_buf));
+ 			break;
+ #ifdef UPNP_ENABLE_IPV6
++/*
+ 		case AF_INET6:
+ 			inet_ntop(AF_INET6,
+ 				  &((struct sockaddr_in6 *)&__ss)->sin6_addr,
+ 				  ntop_buf, sizeof(ntop_buf));
+ 			break;
++*/
+ #endif /* UPNP_ENABLE_IPV6 */
+ 		default:
+ 			memset(ntop_buf, 0, sizeof(ntop_buf));
+@@ -765,6 +779,7 @@
+ 			/* null-terminate */
+ 			data->parser.msg.msg.buf[byteReceived] = 0;
+ 			memcpy(&data->dest_addr, &__ss, sizeof(__ss));
++			/*
+ 			TPJobInit(&job, (start_routine)
+ 				  ssdp_event_handler_thread, data);
+ 			TPJobSetFreeFunction(&job,
+@@ -772,6 +787,8 @@
+ 			TPJobSetPriority(&job, MED_PRIORITY);
+ 			if (ThreadPoolAdd(&gRecvThreadPool, &job, NULL) != 0)
+ 				free_ssdp_event_handler_data(data);
++			*/
++			ssdp_event_handler_thread(data);
+ 		}
+ 	} else
+ 		free_ssdp_event_handler_data(data);

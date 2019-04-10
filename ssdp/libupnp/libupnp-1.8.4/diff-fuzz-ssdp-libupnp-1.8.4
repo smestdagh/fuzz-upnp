@@ -1,0 +1,279 @@
+diff -uNr libupnp-1.8.4/upnp/src/api/upnpapi.c libupnp-1.8.4-mod/upnp/src/api/upnpapi.c
+--- libupnp-1.8.4/upnp/src/api/upnpapi.c	Thu Oct 25 16:49:10 2018
++++ libupnp-1.8.4-mod/upnp/src/api/upnpapi.c	Wed Apr 10 12:37:26 2019
+@@ -825,15 +825,21 @@
+ 	int hasServiceTable = 0;
+ #endif /* EXCLUDE_GENA */
+ 
++	char *xml_buf = NULL;
++	FILE *fd = NULL;
++	int ret_code;
++	size_t mylen;
++
+ 	HandleLock();
+ 
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"Inside UpnpRegisterRootDevice\n");
+-
++/*
+ 	if (UpnpSdkInit != 1) {
+ 		retVal = UPNP_E_FINISH;
+ 		goto exit_function;
+ 	}
++*/
+ 
+ 	if (Hnd == NULL ||
+ 	    Fun == NULL ||
+@@ -881,6 +887,7 @@
+ 	HInfo->MaxSubscriptionTimeOut = UPNP_INFINITE;
+ 	HInfo->DeviceAf = AF_INET;
+ 
++/*	
+ 	retVal = UpnpDownloadXmlDoc(HInfo->DescURL, &(HInfo->DescDocument));
+ 	if (retVal != UPNP_E_SUCCESS) {
+ 		UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+@@ -888,10 +895,28 @@
+ 			retVal);
+ #ifdef INCLUDE_CLIENT_APIS
+ 		ListDestroy(&HInfo->SsdpSearchList, 0);
+-#endif /* INCLUDE_CLIENT_APIS */
+-		FreeHandle(*Hnd);
++#endif *//* INCLUDE_CLIENT_APIS */
++/*		FreeHandle(*Hnd);
+ 		goto exit_function;
+ 	}
++*/
++
++	/* just read a fixed description xml file */
++	xml_buf = malloc(2000);
++	if (xml_buf == NULL) {
++		printf("malloc failed!\n");
++		exit(1);
++	}
++	fd = fopen("tvdevicedesc.xml","r");
++	if (fd == NULL) {
++		printf("file open failed!\n");
++		exit(1);
++	}
++	mylen = fread(xml_buf, 1, 2000, fd);
++	xml_buf[mylen] = '\0';
++	ret_code = ixmlParseBufferEx(xml_buf, &(HInfo->DescDocument));
++	free(xml_buf);
++
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"UpnpRegisterRootDevice: Valid Description\n"
+ 		"UpnpRegisterRootDevice: DescURL : %s\n",
+diff -uNr libupnp-1.8.4/upnp/src/genlib/miniserver/miniserver.c libupnp-1.8.4-mod/upnp/src/genlib/miniserver/miniserver.c
+--- libupnp-1.8.4/upnp/src/genlib/miniserver/miniserver.c	Thu Oct 25 16:49:10 2018
++++ libupnp-1.8.4-mod/upnp/src/genlib/miniserver/miniserver.c	Wed Apr 10 12:37:42 2019
+@@ -323,9 +323,9 @@
+ 
+ static void ssdp_read(SOCKET rsock, fd_set *set)
+ {
+-	if (rsock != INVALID_SOCKET && FD_ISSET(rsock, set)) {
++/*	if (rsock != INVALID_SOCKET && FD_ISSET(rsock, set)) {*/
+ 		readFromSSDPSocket(rsock);
+-	}
++/*	}*/
+ }
+ 
+ static int receive_from_stopSock(SOCKET ssock, fd_set *set)
+diff -uNr libupnp-1.8.4/upnp/src/ssdp/ssdp_ctrlpt.c libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_ctrlpt.c
+--- libupnp-1.8.4/upnp/src/ssdp/ssdp_ctrlpt.c	Thu Oct 25 16:49:10 2018
++++ libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_ctrlpt.c	Wed Apr 10 12:37:54 2019
+@@ -324,6 +324,8 @@
+ 						    (threadData, ctrlpt_callback);
+ 						memset(&job, 0, sizeof(job));
+ 
++						send_search_result(threadData);
++						/*
+ 						TPJobInit(&job, (start_routine)
+ 							  send_search_result,
+ 							  threadData);
+@@ -334,6 +336,7 @@
+ 						if (ThreadPoolAdd(&gRecvThreadPool, &job, NULL) != 0) {
+ 							SSDPResultData_delete(threadData);
+ 						}
++						*/
+ 					}
+ 				}
+ 				node = ListNext(&ctrlpt_info->SsdpSearchList, node);
+diff -uNr libupnp-1.8.4/upnp/src/ssdp/ssdp_device.c libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_device.c
+--- libupnp-1.8.4/upnp/src/ssdp/ssdp_device.c	Thu Oct 25 16:49:10 2018
++++ libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_device.c	Wed Apr 10 12:38:00 2019
+@@ -115,21 +115,26 @@
+ 		/* bad ST header. */
+ 		return;
+ 
++	handle = 1;
+ 	start = 0;
++	/*
+ 	for (;;) {
+-		HandleLock();
++		HandleLock();*/
+ 		/* device info. */
++		/*
+ 		switch (GetDeviceHandleInfo(start, (int)dest_addr->ss_family,
+ 									&handle, &dev_info)) {
+ 		case HND_DEVICE:
+ 			break;
+ 		default:
+-			HandleUnlock();
++			HandleUnlock();*/
+ 			/* no info found. */
+-			return;
++/*			return;
+ 		}
+-		maxAge = dev_info->MaxAge;
+-		HandleUnlock();
++		*/
++		/*maxAge = dev_info->MaxAge;
++		HandleUnlock();*/
++		maxAge = 3;
+ 
+ 		UpnpPrintf(UPNP_PACKET, API, __FILE__, __LINE__,
+ 				   "MAX-AGE     =  %d\n", maxAge);
+@@ -149,12 +154,16 @@
+ 		threadArg->event = event;
+ 		threadArg->MaxAge = maxAge;
+ 
++		advertiseAndReplyThread(threadArg);
++		/*
+ 		TPJobInit(&job, advertiseAndReplyThread, threadArg);
+ 		TPJobSetFreeFunction(&job, (free_routine) free);
++		*/
+ 
+ 		/* Subtract a percentage from the mx to allow for network and processing
+ 		 * delays (i.e. if search is for 30 seconds, respond
+ 		 * within 0 - 27 seconds). */
++		/*
+ 		if (mx >= 2)
+ 			mx -= MAXVAL(1, mx / MX_FUDGE_FACTOR);
+ 		if (mx < 1)
+@@ -164,6 +173,7 @@
+ 							SHORT_TERM, NULL);
+ 		start = handle;
+ 	}
++		*/
+ }
+ #endif
+ 
+@@ -629,7 +639,11 @@
+ 		}
+ 	}
+ 	/* send msgs */
+-	ret_code = NewRequestHandler(DestAddr, num_msgs, msgs);
++	ret_code = UPNP_E_SOCKET_WRITE;
++	for (i = 0; i < num_msgs; i++) {
++		printf("%s", msgs[i]);
++	}
++	/*ret_code = NewRequestHandler(DestAddr, num_msgs, msgs);*/
+ 
+ error_handler:
+ 	for (i = 0; i < num_msgs; i++) {
+@@ -689,9 +703,13 @@
+ 	}
+ 	/* send replies */
+ 	if (RootDev) {
+-		RetVal = NewRequestHandler(DestAddr, 3, szReq);
++		printf("%s",*szReq);
++		RetVal = UPNP_E_SOCKET_WRITE;
++		/*RetVal = NewRequestHandler(DestAddr, 3, szReq);*/
+ 	} else {
+-		RetVal = NewRequestHandler(DestAddr, 2, &szReq[1]);
++		printf("%s",szReq[1]);
++		RetVal = UPNP_E_SOCKET_WRITE;
++		/*RetVal = NewRequestHandler(DestAddr, 2, &szReq[1]);*/
+ 	}
+ 
+ error_handler:
+@@ -746,7 +764,9 @@
+ 	if (szReq[0] == NULL) {
+ 		goto error_handler;
+ 	}
+-	RetVal = NewRequestHandler((struct sockaddr *)&__ss, 1, szReq);
++	RetVal = UPNP_E_SOCKET_WRITE;
++	printf("%s", szReq[0]);
++	/*RetVal = NewRequestHandler((struct sockaddr *)&__ss, 1, szReq);*/
+ 
+ error_handler:
+ 	free(szReq[0]);
+@@ -772,7 +792,9 @@
+ 			    PowerState, SleepPeriod, RegistrationState);
+ 	if (szReq[0] == NULL)
+ 		goto error_handler;
+-	RetVal = NewRequestHandler(DestAddr, 1, szReq);
++	RetVal = UPNP_E_SOCKET_WRITE;
++	printf("%s", szReq[0]);
++	/*RetVal = NewRequestHandler(DestAddr, 1, szReq);*/
+ 
+ error_handler:
+ 	free(szReq[0]);
+diff -uNr libupnp-1.8.4/upnp/src/ssdp/ssdp_server.c libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_server.c
+--- libupnp-1.8.4/upnp/src/ssdp/ssdp_server.c	Thu Oct 25 16:49:10 2018
++++ libupnp-1.8.4-mod/upnp/src/ssdp/ssdp_server.c	Wed Apr 10 12:38:04 2019
+@@ -89,6 +89,10 @@
+ #ifdef INCLUDE_DEVICE_APIS
+ static const char SERVICELIST_STR[] = "serviceList";
+ 
++#define CLADDRHEX 0x6401a8c0 /* 192.168.1.100 */
++#define CLPORTHEX 0x3930     /* 12345 */
++#define CLADDR6HEX { 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0a } /* fe80::a */
++
+ int AdvertiseAndReply(int AdFlag, UpnpDevice_Handle Hnd,
+ 		      enum SsdpSearchType SearchType,
+ 		      struct sockaddr *DestAddr, char *DeviceType,
+@@ -731,8 +735,18 @@
+ 			data = NULL;
+ 		}
+ 	}
+-	byteReceived = recvfrom(socket, requestBuf, BUFSIZE - (size_t)1, 0,
+-				(struct sockaddr *)&__ss, &socklen);
++/*	byteReceived = recvfrom(socket, requestBuf, BUFSIZE - (size_t)1, 0,
++				(struct sockaddr *)&__ss, &socklen); */
++	/* read from stdin for AFL */
++	byteReceived = read(0, requestBuf, BUFSIZE - (size_t)1);
++	struct sockaddr_in mytemp = { AF_INET, CLPORTHEX, { CLADDRHEX } };
++	char mytemp2[48];
++	memset(mytemp2, 0, 48);
++        memcpy(mytemp2, &mytemp, sizeof(mytemp));
++	__ss = *((struct sockaddr_storage*) (mytemp2));
++
++	/*printf("---> read done, bytes received %d\n", byteReceived);*/
++
+ 	if (byteReceived > 0) {
+ 		requestBuf[byteReceived] = '\0';
+ 		switch (__ss.ss_family) {
+@@ -741,12 +755,15 @@
+ 				  &((struct sockaddr_in *)&__ss)->sin_addr,
+ 				  ntop_buf, sizeof(ntop_buf));
+ 			break;
++
+ #ifdef UPNP_ENABLE_IPV6
++/*
+ 		case AF_INET6:
+ 			inet_ntop(AF_INET6,
+ 				  &((struct sockaddr_in6 *)&__ss)->sin6_addr,
+ 				  ntop_buf, sizeof(ntop_buf));
+ 			break;
++*/
+ #endif /* UPNP_ENABLE_IPV6 */
+ 		default:
+ 			memset(ntop_buf, 0, sizeof(ntop_buf));
+@@ -764,6 +781,7 @@
+ 			/* null-terminate */
+ 			data->parser.msg.msg.buf[byteReceived] = 0;
+ 			memcpy(&data->dest_addr, &__ss, sizeof(__ss));
++			/*
+ 			TPJobInit(&job, (start_routine)
+ 				  ssdp_event_handler_thread, data);
+ 			TPJobSetFreeFunction(&job,
+@@ -771,6 +789,8 @@
+ 			TPJobSetPriority(&job, MED_PRIORITY);
+ 			if (ThreadPoolAdd(&gRecvThreadPool, &job, NULL) != 0)
+ 				free_ssdp_event_handler_data(data);
++			*/
++			ssdp_event_handler_thread(data);
+ 		}
+ 	} else
+ 		free_ssdp_event_handler_data(data);
