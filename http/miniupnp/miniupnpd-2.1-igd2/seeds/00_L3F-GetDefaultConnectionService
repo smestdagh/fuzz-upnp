@@ -1,0 +1,6 @@
+POST /ctl/L3F HTTP/1.1
+Host: 172.19.3.12
+Content-Length: 343
+Content-Type: text/xml; charset="utf-8"
+User-Agent: OS/1.0 UPnP/1.1 Product/1.0
+SoapAction: urn:schemas-upnp-org:service:Layer3Forwarding:1#GetDefaultConnectionService

@@ -1,0 +1,6 @@
+POST /ctl/IP6FCtl HTTP/1.1
+Host: 172.19.3.12
+Content-Length: 385
+Content-Type: text/xml; charset="utf-8"
+User-Agent: OS/1.0 UPnP/1.1 Product/1.0
+SoapAction: urn:schemas-upnp-org:service:WANIPv6FirewallControl:1#GetPinholePackets
