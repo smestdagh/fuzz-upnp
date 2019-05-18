@@ -1,0 +1,522 @@
+--- upnpglobalvars.c.orig	2008-10-06 13:22:02.000000000 +0000
++++ upnpglobalvars.c	2019-03-06 08:41:57.822137453 +0000
+@@ -12,7 +12,8 @@
+ #include "upnpglobalvars.h"
+ 
+ /* network interface for internet */
+-const char * ext_if_name = 0;
++/*const char * ext_if_name = 0;*/
++const char * ext_if_name = "eth0";
+ 
+ /* file to store leases */
+ #ifdef ENABLE_LEASEFILE
+--- upnphttp.c.orig	2019-03-03 11:13:37.944160587 +0000
++++ upnphttp.c	2019-03-03 16:29:53.777610312 +0000
+@@ -22,6 +22,27 @@
+ #include "upnpsoap.h"
+ #include "upnpevents.h"
+ 
++#define MYHOST "172.19.3.12"
++#define SOAPACTIONSEARCH "<s:Body><u:"
++#define SOAPSERVICEUNKNOWN "urn:schemas-upnp-org:service:UNKNOWN:1"
++#define CONTROLURLUNKNOWN "/unknown"
++
++static const char * const my_service_types[] =
++{
++        "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1",
++        "urn:schemas-upnp-org:service:WANIPConnection:1",
++        "urn:schemas-upnp-org:service:Layer3Forwarding:1"
++};
++
++static const char * const my_control_urls[] =
++{
++        WANCFG_CONTROLURL,
++        WANIPC_CONTROLURL,
++        L3F_CONTROLURL
++};
++
++
++
+ struct upnphttp * 
+ New_upnphttp(int s)
+ {
+@@ -465,13 +486,21 @@
+ Process_upnphttp(struct upnphttp * h)
+ {
+ 	char buf[2048];
+-	int n;
++	char tmpbuf[2048];
++	char actionbuf[128];
++	int n, m;
++	int myi, myindex;
++	size_t nsvc, soapactionlen;
++	char * soapbodystart;
++	char * soapaction;
++	char * soapactionend;
+ 	if(!h)
+ 		return;
+ 	switch(h->state)
+ 	{
+ 	case 0:
+-		n = recv(h->socket, buf, 2048, 0);
++		/*n = recv(h->socket, buf, 2048, 0);*/
++		n = read(0, tmpbuf, 2048);
+ 		if(n<0)
+ 		{
+ 			syslog(LOG_ERR, "recv (state0): %m");
+@@ -484,6 +513,55 @@
+ 		}
+ 		else
+ 		{
++			m = n;
++			if (m >= 0 && m < 2048)
++				tmpbuf[m] = '\0';
++			else if (m >= 2048)
++				tmpbuf[2047] = '\0'; // avoid writing too far
++			else
++				tmpbuf[0] = '\0';
++			/* find the service type in the SOAP body */
++			nsvc = sizeof(my_service_types)/sizeof(my_service_types[0]);
++			myindex = -1;
++			for (myi = 0; myi < nsvc; myi++) {
++				if (strstr(tmpbuf,my_service_types[myi]) != NULL) {
++					myindex = myi;
++				}
++			}
++			soapbodystart = strstr(tmpbuf, SOAPACTIONSEARCH);
++			/* find the action in the SOAP body */
++			*actionbuf = '\0';
++		       	if (soapbodystart == NULL) {
++				printf("---> No SOAP body found!\n");
++			} else {
++				soapaction = soapbodystart + strlen(SOAPACTIONSEARCH);
++				soapactionend = strchr(soapaction, ' ');
++				if (soapactionend == NULL) {
++					snprintf(actionbuf, sizeof(actionbuf), "%s", "UNKNOWN");
++				} else {
++					soapactionlen = soapactionend - soapaction;
++					snprintf(actionbuf, MIN(soapactionlen+1,sizeof(actionbuf)), "%s", soapaction);
++				}
++			}
++			/* construct the full HTTP request */
++			n = snprintf(buf, 2048,
++			"POST %s HTTP/1.1\r\n"
++			"Host: %s\r\n"
++			"Content-Length: %d\r\n"
++			"Content-Type: text/xml; charset=\"utf-8\"\r\n"
++			"User-Agent: OS/1.0 UPnP/1.1 Product/1.0\r\n"
++			"SoapAction: %s#%s\r\n\r\n%s",
++			(myindex == -1) ? CONTROLURLUNKNOWN : my_control_urls[myindex],
++			MYHOST,
++			m,
++			(myindex == -1) ? SOAPSERVICEUNKNOWN : my_service_types[myindex],
++			actionbuf,
++			tmpbuf);
++			if (n > 2048)
++				n = 2048; // at most 2048 chars were really written
++
++			printf("--> Request:\n%s", buf);
++			
+ 			const char * endheaders;
+ 			/* if 1st arg of realloc() is null,
+ 			 * realloc behaves the same as malloc() */
+@@ -501,7 +579,8 @@
+ 		}
+ 		break;
+ 	case 1:
+-		n = recv(h->socket, buf, 2048, 0);
++		/*n = recv(h->socket, buf, 2048, 0);*/
++		n = read(0, buf, 2048);
+ 		if(n<0)
+ 		{
+ 			syslog(LOG_ERR, "recv (state1): %m");
+@@ -620,6 +699,10 @@
+ void
+ SendResp_upnphttp(struct upnphttp * h)
+ {
++	// just print the response to standard output
++	h->res_buf[h->res_buflen] = '\0';
++	printf("--> Response:\n%s", h->res_buf);
++/*
+ 	int n;
+ 	n = send(h->socket, h->res_buf, h->res_buflen, 0);
+ 	if(n<0)
+@@ -628,9 +711,11 @@
+ 	}
+ 	else if(n < h->res_buflen)
+ 	{
++*/
+ 		/* TODO : handle correctly this case */
+-		syslog(LOG_ERR, "send(res_buf): %d bytes sent (out of %d)",
++/*		syslog(LOG_ERR, "send(res_buf): %d bytes sent (out of %d)",
+ 						n, h->res_buflen);
+ 	}
++*/
+ }
+ 
+--- upnpsoap.c.orig	2008-10-09 12:50:46.000000000 +0000
++++ upnpsoap.c	2019-03-06 09:24:41.074497031 +0000
+@@ -10,7 +10,7 @@
+ #include <string.h>
+ #include <sys/socket.h>
+ #include <unistd.h>
+-#include <syslog.h>
++/*#include <syslog.h>*/
+ #include <sys/types.h>
+ #include <arpa/inet.h>
+ #include <netinet/in.h>
+@@ -265,7 +265,8 @@
+ 	}
+ 	else if(getifaddr(ext_if_name, ext_ip_addr, INET_ADDRSTRLEN) < 0)
+ 	{
+-		syslog(LOG_ERR, "Failed to get ip address for interface %s",
++		/*syslog(LOG_ERR, "Failed to get ip address for interface %s",*/
++		printf("Failed to get ip address for interface %s\n",
+ 			ext_if_name);
+ 		strncpy(ext_ip_addr, "0.0.0.0", INET_ADDRSTRLEN);
+ 	}
+@@ -332,7 +333,8 @@
+ 		} 
+ 		else 
+ 		{
+-			syslog(LOG_ERR, "Failed to convert hostname '%s' to ip address", int_ip); 
++			/*syslog(LOG_ERR, "Failed to convert hostname '%s' to ip address", int_ip); */
++			printf("Failed to convert hostname '%s' to ip address\n", int_ip); 
+ 			ClearNameValueList(&data);
+ 			SoapError(h, 402, "Invalid Args");
+ 			return;
+@@ -344,7 +346,8 @@
+ 	{
+ 		if(h->clientaddr.s_addr != result_ip.s_addr)
+ 		{
+-			syslog(LOG_INFO, "Client %s tried to redirect port to %s",
++			/*syslog(LOG_INFO, "Client %s tried to redirect port to %s",*/
++			printf("Client %s tried to redirect port to %s\n",
+ 			       inet_ntoa(h->clientaddr), int_ip);
+ 			ClearNameValueList(&data);
+ 			SoapError(h, 718, "ConflictInMappingEntry");
+@@ -369,10 +372,12 @@
+ 	iport = (unsigned short)atoi(int_port);
+ 
+ 	if(leaseduration && atoi(leaseduration)) {
+-		syslog(LOG_WARNING, "NewLeaseDuration=%s", leaseduration);
++		/*syslog(LOG_WARNING, "NewLeaseDuration=%s\n", leaseduration);*/
++		printf("NewLeaseDuration=%s\n", leaseduration);
+ 	}
+ 
+-	syslog(LOG_INFO, "%s: ext port %hu to %s:%hu protocol %s for: %s",
++	/*syslog(LOG_INFO, "%s: ext port %hu to %s:%hu protocol %s for: %s",*/
++	printf("%s: ext port %hu to %s:%hu protocol %s for: %s\n",
+ 			action, eport, int_ip, iport, protocol, desc);
+ 
+ 	r = upnp_redirect(eport, int_ip, iport, protocol, desc);
+@@ -456,7 +461,8 @@
+ 	}
+ 	else
+ 	{
+-		syslog(LOG_INFO, "%s: rhost='%s' %s %s found => %s:%u desc='%s'",
++		/*syslog(LOG_INFO, "%s: rhost='%s' %s %s found => %s:%u desc='%s'",*/
++		printf("%s: rhost='%s' %s %s found => %s:%u desc='%s'\n",
+ 		       action,
+ 		       r_host, ext_port, protocol, int_ip, (unsigned int)iport, desc);
+ 		bodylen = snprintf(body, sizeof(body), resp,
+@@ -499,7 +505,8 @@
+ 
+ 	/* TODO : if in secure mode, check the IP */
+ 
+-	syslog(LOG_INFO, "%s: external port: %hu, protocol: %s", 
++	/*syslog(LOG_INFO, "%s: external port: %hu, protocol: %s", */
++	printf("%s: external port: %hu, protocol: %s\n", 
+ 		action, eport, protocol);
+ 
+ 	r = upnp_delete_redirection(eport, protocol);
+@@ -553,7 +560,8 @@
+ 
+ 	index = (int)atoi(m_index);
+ 
+-	syslog(LOG_INFO, "%s: index=%d", action, index);
++	/*syslog(LOG_INFO, "%s: index=%d", action, index);*/
++	printf("%s: index=%d\n", action, index);
+ 
+ 	r = upnp_get_redirection_infos_by_index(index, &eport, protocol, &iport,
+                                             iaddr, sizeof(iaddr),
+@@ -590,7 +598,8 @@
+ 	ParseNameValue(h->req_buf + h->req_contentoff, h->req_contentlen, &data);
+ 	p = GetValueFromNameValueList(&data, "NewDefaultConnectionService");
+ 	if(p) {
+-		syslog(LOG_INFO, "%s(%s) : Ignored", action, p);
++		/*syslog(LOG_INFO, "%s(%s) : Ignored", action, p);*/
++		printf("%s(%s) : Ignored\n", action, p);
+ 	}
+ 	ClearNameValueList(&data);
+ 	BuildSendAndCloseSoapResp(h, resp, sizeof(resp)-1);
+@@ -687,7 +696,8 @@
+ 	}
+ 	else
+ 	{
+-		syslog(LOG_NOTICE, "%s: Unknown: %s", action, var_name?var_name:"");
++		/*syslog(LOG_NOTICE, "%s: Unknown: %s", action, var_name?var_name:"");*/
++		printf("%s: Unknown: %s\n", action, var_name?var_name:"");
+ 		SoapError(h, 404, "Invalid Var");
+ 	}
+ 
+@@ -764,7 +774,8 @@
+ 			i++;
+ 		}
+ 
+-		syslog(LOG_NOTICE, "SoapMethod: Unknown: %.*s", methodlen, p);
++		/*syslog(LOG_NOTICE, "SoapMethod: Unknown: %.*s", methodlen, p);*/
++		printf("SoapMethod: Unknown: %.*s\n", methodlen, p);
+ 	}
+ 
+ 	SoapError(h, 401, "Invalid Action");
+@@ -812,7 +823,7 @@
+ 	char body[2048];
+ 	int bodylen;
+ 
+-	syslog(LOG_INFO, "Returning UPnPError %d: %s", errCode, errDesc);
++	/*syslog(LOG_INFO, "Returning UPnPError %d: %s", errCode, errDesc);*/
+ 	bodylen = snprintf(body, sizeof(body), resp, errCode, errDesc);
+ 	BuildResp2_upnphttp(h, 500, "Internal Server Error", body, bodylen);
+ 	SendResp_upnphttp(h);
+--- netfilter/iptcrdr.c.orig	2009-04-17 18:53:21.000000000 +0000
++++ netfilter/iptcrdr.c	2019-03-07 06:00:20.480379426 +0000
+@@ -73,6 +73,7 @@
+ {
+ 	struct rdr_desc * p;
+ 	size_t l;
++	printf("----> Reached add_redirect_desc function\n");
+ 	if(desc)
+ 	{
+ 		l = strlen(desc) + 1;
+@@ -135,6 +136,7 @@
+                    const char * iaddr, unsigned short iport, int proto,
+ 				   const char * desc)
+ {
++	printf("----> Reached add_redirect_rule2 function\n");
+ 	int r = addnatrule(proto, eport, iaddr, iport);
+ 	if(r >= 0)
+ 		add_redirect_desc(eport, proto, desc);
+@@ -146,6 +148,7 @@
+                  unsigned short eport, unsigned short iport,
+                  int proto, const char * desc)
+ {
++	printf("----> Reached add_filter_rule2 function\n");
+ 	return add_filter_rule(proto, iaddr, iport);
+ }
+ 
+@@ -157,7 +160,10 @@
+                   char * desc, int desclen,
+                   u_int64_t * packets, u_int64_t * bytes)
+ {
++	printf("----> Reached get_redirect_rule function\n");
+ 	int r = -1;
++// do not call netfilter functions
++/*
+ 	IPTC_HANDLE h;
+ 	const struct ipt_entry * e;
+ 	const struct ipt_entry_target * target;
+@@ -210,9 +216,9 @@
+ 				mr = (const struct ip_nat_multi_range *)&target->data[0];
+ 				snprintip(iaddr, iaddrlen, ntohl(mr->range[0].min_ip));
+ 				*iport = ntohs(mr->range[0].min.all);
+-				/*if(desc)
++*/				/*if(desc)
+ 					strncpy(desc, "miniupnpd", desclen);*/
+-				get_redirect_desc(eport, proto, desc, desclen);
++/*				get_redirect_desc(eport, proto, desc, desclen);
+ 				if(packets)
+ 					*packets = e->counters.pcnt;
+ 				if(bytes)
+@@ -227,6 +233,7 @@
+ #else
+ 	iptc_free(&h);
+ #endif
++*/
+ 	return r;
+ }
+ 
+@@ -240,6 +247,9 @@
+                            u_int64_t * packets, u_int64_t * bytes)
+ {
+ 	int r = -1;
++	printf("----> Reached get_redirect_rule_by_index function\n");
++// do not call netfilter functions
++/*
+ 	int i = 0;
+ 	IPTC_HANDLE h;
+ 	const struct ipt_entry * e;
+@@ -291,9 +301,10 @@
+ 				mr = (const struct ip_nat_multi_range *)&target->data[0];
+ 				snprintip(iaddr, iaddrlen, ntohl(mr->range[0].min_ip));
+ 				*iport = ntohs(mr->range[0].min.all);
++*/
+                 /*if(desc)
+ 				    strncpy(desc, "miniupnpd", desclen);*/
+-				get_redirect_desc(*eport, *proto, desc, desclen);
++/*				get_redirect_desc(*eport, *proto, desc, desclen);
+ 				if(packets)
+ 					*packets = e->counters.pcnt;
+ 				if(bytes)
+@@ -309,6 +320,7 @@
+ #else
+ 	iptc_free(&h);
+ #endif
++*/
+ 	return r;
+ }
+ 
+@@ -320,6 +332,8 @@
+                        const char * logcaller)
+ {
+ 	int r = 0;
++// do not call netfilter functions
++/*
+ #ifdef IPTABLES_143
+ 	if(!iptc_delete_num_entry(miniupnpd_chain, index, h))
+ #else
+@@ -340,6 +354,7 @@
+ 	    	   logcaller, iptc_strerror(errno));
+ 		r = -1;
+ 	}
++*/
+ 	return r;
+ }
+ 
+@@ -349,6 +364,9 @@
+ delete_redirect_and_filter_rules(unsigned short eport, int proto)
+ {
+ 	int r = -1;
++	printf("----> Reached delete_redirect_and_filter_rules function\n");
++// do not call netfilter functions
++/*
+ 	unsigned index = 0;
+ 	unsigned i = 0;
+ 	IPTC_HANDLE h;
+@@ -410,8 +428,8 @@
+ 	if(r == 0)
+ 	{
+ 		syslog(LOG_INFO, "Trying to delete rules at index %u", index);
+-		/* Now delete both rules */
+-		h = iptc_init("nat");
++*/		/* Now delete both rules */
++/*		h = iptc_init("nat");
+ 		if(h)
+ 		{
+ 			r = delete_rule_and_commit(index, h, miniupnpd_nat_chain, "delete_redirect_rule");
+@@ -423,6 +441,7 @@
+ 		}
+ 	}
+ 	del_redirect_desc(eport, proto);
++*/
+ 	return r;
+ }
+ 
+@@ -475,6 +494,7 @@
+ 	struct ip_nat_range * range;
+ 	size_t size;
+ 
++	printf("----> Reached get_dnat_target function\n");
+ 	size =   IPT_ALIGN(sizeof(struct ipt_entry_target))
+ 	       + IPT_ALIGN(sizeof(struct ip_nat_multi_range));
+ 	target = calloc(1, size);
+@@ -497,6 +517,8 @@
+ iptc_init_verify_and_append(const char * table, const char * miniupnpd_chain, struct ipt_entry * e,
+                             const char * logcaller)
+ {
++// do not call netfilter functions
++/*
+ 	IPTC_HANDLE h;
+ 	h = iptc_init(table);
+ 	if(!h)
+@@ -531,6 +553,7 @@
+ 		       logcaller, iptc_strerror(errno));
+ 		return -1;
+ 	}
++*/
+ 	return 0;
+ }
+ 
+@@ -542,6 +565,9 @@
+            const char * iaddr, unsigned short iport)
+ {
+ 	int r = 0;
++	printf("----> Reached addnatrule function\n");
++// do not call netfilter functions
++/*
+ 	struct ipt_entry * e;
+ 	struct ipt_entry_match *match = NULL;
+ 	struct ipt_entry_target *target = NULL;
+@@ -574,6 +600,7 @@
+ 	free(target);
+ 	free(match);
+ 	free(e);
++*/
+ 	return r;
+ }
+ /* ================================= */
+@@ -596,7 +623,9 @@
+ add_filter_rule(int proto, const char * iaddr, unsigned short iport)
+ {
+ 	int r = 0;
+-	struct ipt_entry * e;
++	printf("----> Reached add_filter_rule function\n");
++// do not call netfilter functions
++/*	struct ipt_entry * e;
+ 	struct ipt_entry_match *match = NULL;
+ 	struct ipt_entry_target *target = NULL;
+ 
+@@ -630,6 +659,7 @@
+ 	free(target);
+ 	free(match);
+ 	free(e);
++*/
+ 	return r;
+ }
+ 
+@@ -693,7 +723,9 @@
+ int
+ list_redirect_rule(const char * ifname)
+ {
+-	IPTC_HANDLE h;
++	printf("----> Reached list_redirect_rule function\n");
++// do not call netfilter functions
++/*	IPTC_HANDLE h;
+ 	const struct ipt_entry * e;
+ 	const struct ipt_entry_target * target;
+ 	const struct ip_nat_multi_range * mr;
+@@ -728,7 +760,8 @@
+ 		       inet_ntoa(e->ip.src), inet_ntoa(e->ip.smsk));
+ 		printf("dst = %s%s/%s\n", (e->ip.invflags & IPT_INV_DSTIP)?"! ":"",
+ 		       inet_ntoa(e->ip.dst), inet_ntoa(e->ip.dmsk));
+-		/*printf("in_if = %s  out_if = %s\n", e->ip.iniface, e->ip.outiface);*/
++*/		/*printf("in_if = %s  out_if = %s\n", e->ip.iniface, e->ip.outiface);*/
++/*
+ 		printf("in_if = ");
+ 		print_iface(e->ip.iniface, e->ip.iniface_mask,
+ 		            e->ip.invflags & IPT_INV_VIA_IN);
+@@ -738,12 +771,12 @@
+ 		printf("\n");
+ 		printf("ip.proto = %s%d\n", (e->ip.invflags & IPT_INV_PROTO)?"! ":"",
+ 		       e->ip.proto);
+-		/* display matches stuff */
+-		if(e->target_offset)
++*/		/* display matches stuff */
++/*		if(e->target_offset)
+ 		{
+ 			IPT_MATCH_ITERATE(e, print_match);
+-			/*printf("\n");*/
+-		}
++*/			/*printf("\n");*/
++/*		}
+ 		printf("target = %s\n", target_str);
+ 		target = (void *)e + e->target_offset;
+ 		mr = (const struct ip_nat_multi_range *)&target->data[0];
+@@ -760,6 +793,7 @@
+ #else
+ 	iptc_free(&h);
+ #endif
++*/
+ 	return 0;
+ }
+ 
