@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8"?><s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" ><s:Body><u:SetVolume xmlns:u="urn:schemas-upnp-org:service:tvcontrol:1"><Volume /></u:SetVolume></s:Body></s:Envelope>

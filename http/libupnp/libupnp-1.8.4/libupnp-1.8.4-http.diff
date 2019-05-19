@@ -1,0 +1,179 @@
+diff -uNr -x '*.orig' libupnp-1.8.4/upnp/src/api/upnpapi.c libupnp-mod/upnp/src/api/upnpapi.c
+--- libupnp-1.8.4/upnp/src/api/upnpapi.c	2018-10-25 14:49:10.000000000 +0000
++++ libupnp-mod/upnp/src/api/upnpapi.c	2019-03-23 19:14:11.555048087 +0000
+@@ -825,15 +825,21 @@
+ 	int hasServiceTable = 0;
+ #endif /* EXCLUDE_GENA */
+ 
++	char *xml_buf = NULL;
++	FILE *fd = NULL;
++	int ret_code;
++	size_t mylen;
++
+ 	HandleLock();
+ 
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"Inside UpnpRegisterRootDevice\n");
+-
++/*
+ 	if (UpnpSdkInit != 1) {
+ 		retVal = UPNP_E_FINISH;
+ 		goto exit_function;
+ 	}
++*/
+ 
+ 	if (Hnd == NULL ||
+ 	    Fun == NULL ||
+@@ -881,6 +887,7 @@
+ 	HInfo->MaxSubscriptionTimeOut = UPNP_INFINITE;
+ 	HInfo->DeviceAf = AF_INET;
+ 
++/*	
+ 	retVal = UpnpDownloadXmlDoc(HInfo->DescURL, &(HInfo->DescDocument));
+ 	if (retVal != UPNP_E_SUCCESS) {
+ 		UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+@@ -888,10 +895,28 @@
+ 			retVal);
+ #ifdef INCLUDE_CLIENT_APIS
+ 		ListDestroy(&HInfo->SsdpSearchList, 0);
+-#endif /* INCLUDE_CLIENT_APIS */
+-		FreeHandle(*Hnd);
++#endif *//* INCLUDE_CLIENT_APIS */
++/*		FreeHandle(*Hnd);
+ 		goto exit_function;
+ 	}
++*/
++
++	/* just read a fixed description xml file */
++	xml_buf = malloc(2000);
++	if (xml_buf == NULL) {
++		printf("malloc failed!\n");
++		exit(1);
++	}
++	fd = fopen("tvdevicedesc.xml","r");
++	if (fd == NULL) {
++		printf("file open failed!\n");
++		exit(1);
++	}
++	mylen = fread(xml_buf, 1, 2000, fd);
++	xml_buf[mylen] = '\0';
++	ret_code = ixmlParseBufferEx(xml_buf, &(HInfo->DescDocument));
++	free(xml_buf);
++
+ 	UpnpPrintf(UPNP_ALL, API, __FILE__, __LINE__,
+ 		"UpnpRegisterRootDevice: Valid Description\n"
+ 		"UpnpRegisterRootDevice: DescURL : %s\n",
+diff -uNr -x '*.orig' libupnp-1.8.4/upnp/src/genlib/net/http/httpreadwrite.c libupnp-mod/upnp/src/genlib/net/http/httpreadwrite.c
+--- libupnp-1.8.4/upnp/src/genlib/net/http/httpreadwrite.c	2018-10-25 14:49:10.000000000 +0000
++++ libupnp-mod/upnp/src/genlib/net/http/httpreadwrite.c	2019-04-03 07:46:38.969739658 +0000
+@@ -68,6 +68,25 @@
+ 	#include <sys/utsname.h>
+ #endif
+ 
++#define SOAPREQ_START "<?xml version=\"1.0\" encoding=\"UTF-8\"?><s:Envelope s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\" xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:soapenc=\"http://schemas.xmlsoap.org/soap/encoding/\" ><s:Body>"
++#define SOAPREQ_END "</s:Body></s:Envelope>"
++#define SOAPBODY_TVCONTROL "<u:IncreaseChannel xmlns:u=\"urn:schemas-upnp-org:service:tvcontrol:1\" />"
++#define SOAPBODY_TVPICTURE "<u:IncreaseBrightness xmlns:u=\"urn:schemas-upnp-org:service:tvpicture:1\" />"
++
++
++static const char * const my_service_types[] =
++{
++    "urn:schemas-upnp-org:service:tvcontrol:1",
++    "urn:schemas-upnp-org:service:tvpicture:1"
++};
++
++static const char * const my_soap_bodies[] =
++{
++    SOAPBODY_TVCONTROL,
++    SOAPBODY_TVPICTURE
++};
++
++
+ /* 
+  * Please, do not change these to const int while MSVC cannot understand
+  * const int in array dimensions.
+@@ -351,9 +370,12 @@
+ 	int ret = UPNP_E_SUCCESS;
+ 	int line = 0;
+ 	parse_status_t status;
+-	int num_read;
++	int num_read, m;
+ 	int ok_on_close = FALSE;
+ 	char buf[2 * 1024];
++	char tmpbuf[2048];
++	int myi, myindex;
++	size_t nsvc;
+ 
+ 	if (request_method == (http_method_t)HTTPMETHOD_UNKNOWN) {
+ 		parser_request_init(parser);
+@@ -362,9 +384,34 @@
+ 	}
+ 
+ 	while (TRUE) {
+-		num_read = sock_read(info, buf, sizeof buf, timeout_secs);
++		/*num_read = sock_read(info, buf, sizeof buf, timeout_secs);*/
++		/* read from stdin for AFL */
++		num_read = read(0, tmpbuf, sizeof tmpbuf);
++
+ 		if (num_read > 0) {
+ 			/* got data */
++			m = num_read;
++			if (m >= 0 && m < 2048)
++				tmpbuf[m] = '\0';
++			else if (m >= 2048)
++				tmpbuf[2047] = '\0'; // avoid writing too far
++			else
++				tmpbuf[0] = '\0';
++			/* find the service type in the SOAP body */
++			nsvc = sizeof(my_service_types)/sizeof(my_service_types[0]);
++			myindex = 0;
++			for (myi = 0; myi < nsvc; myi++) {
++				if (strstr(tmpbuf,my_service_types[myi]) != NULL)
++					myindex = myi;
++			}
++			/* construct the full HTTP request */
++			num_read = snprintf(buf, 2048,
++			"%s\r\n\r\n" SOAPREQ_START "%s" SOAPREQ_END "\n",
++			tmpbuf,
++			my_soap_bodies[myindex]);
++			if (num_read > 2048)
++		            num_read = 2048; // at most 2048 chars were really written
++
+ 			status = parser_append(parser, buf, (size_t)num_read);
+ 			switch (status) {
+ 			case PARSE_SUCCESS:
+diff -uNr -x '*.orig' libupnp-1.8.4/upnp/src/genlib/net/sock.c libupnp-mod/upnp/src/genlib/net/sock.c
+--- libupnp-1.8.4/upnp/src/genlib/net/sock.c	2018-10-25 14:49:10.000000000 +0000
++++ libupnp-mod/upnp/src/genlib/net/sock.c	2019-03-23 19:13:26.516655741 +0000
+@@ -271,7 +271,9 @@
+ int sock_write(SOCKINFO *info, const char *buffer, size_t bufsize, int *timeoutSecs)
+ {
+ 	/* Consciently removing constness. */
+-	return sock_read_write(info, (char *)buffer, bufsize, timeoutSecs, FALSE);
++	/*return sock_read_write(info, (char *)buffer, bufsize, timeoutSecs, FALSE);*/
++	/* just print to stdout instead */
++	return write(1, (char *)buffer, bufsize);
+ }
+ 
+ int sock_make_blocking(SOCKET sock)
+diff -uNr -x '*.orig' libupnp-1.8.4/upnp/src/soap/soap_device.c libupnp-mod/upnp/src/soap/soap_device.c
+--- libupnp-1.8.4/upnp/src/soap/soap_device.c	2018-10-25 14:49:10.000000000 +0000
++++ libupnp-mod/upnp/src/soap/soap_device.c	2019-03-23 19:12:51.844353695 +0000
+@@ -396,7 +396,7 @@
+ 	UpnpActionRequest_strcpy_ServiceID(action, soap_info->service_id);
+ 	UpnpActionRequest_set_ActionRequest(action, actionRequestDoc);
+ 	UpnpActionRequest_set_ActionResult(action, NULL);
+-	UpnpActionRequest_set_CtrlPtIPAddr(action, &info->foreign_sockaddr);
++/*	UpnpActionRequest_set_CtrlPtIPAddr(action, &info->foreign_sockaddr);*/
+ 
+ 	UpnpPrintf(UPNP_INFO, SOAP, __FILE__, __LINE__, "Calling Callback\n");
+ 	soap_info->callback(UPNP_CONTROL_ACTION_REQUEST, action, soap_info->cookie);
+@@ -718,7 +718,7 @@
+ 		goto error_handler;
+ 	}
+ 	if (get_dev_service(request,
+-			info->foreign_sockaddr.ss_family, soap_info) < 0) {
++			2, soap_info) < 0) {
+ 		err_code = HTTP_NOT_FOUND;
+ 		goto error_handler;
+ 	}

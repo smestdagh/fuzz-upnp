@@ -1,0 +1,310 @@
+--- libupnp-1.8.4/upnp/sample/common/tv_device.c	Thu Oct 25 16:49:10 2018
++++ tvdev.c	Wed Apr  3 09:46:59 2019
+@@ -78,6 +78,8 @@
+  * or writing the state table data. */
+ ithread_mutex_t TVDevMutex;
+ 
++char * xml_buf = NULL;
++
+ /*! Color constants */
+ #define MAX_COLOR 10
+ #define MIN_COLOR 1
+@@ -216,6 +218,25 @@
+ 	return 0;
+ }
+ 
++void readxmlfile() {
++	FILE *fd = NULL;
++	size_t mylen;
++	/* just read a fixed description xml file */
++	xml_buf = malloc(2000);
++	if (xml_buf == NULL) {
++		printf("malloc failed!\n");
++		exit(1);
++	}
++	fd = fopen("tvdevicedesc.xml","r");
++	if (fd == NULL) {
++		printf("file open failed!\n");
++		exit(1);
++	}
++	mylen = fread(xml_buf, 1, 2000, fd);
++	xml_buf[mylen] = '\0';
++	fclose(fd);
++}
++
+ int TvDeviceStateTableInit(char *DescDocURL)
+ {
+ 	IXML_Document *DescDoc = NULL;
+@@ -227,14 +248,20 @@
+ 	char *evnturl_pict = NULL;
+ 	char *ctrlurl_pict = NULL;
+ 	char *udn = NULL;
++	
+ 
+ 	/*Download description document */
+-	if (UpnpDownloadXmlDoc(DescDocURL, &DescDoc) != UPNP_E_SUCCESS) {
++/*	if (UpnpDownloadXmlDoc(DescDocURL, &DescDoc) != UPNP_E_SUCCESS) {
+ 		SampleUtil_Print("TvDeviceStateTableInit -- Error Parsing %s\n",
+ 				 DescDocURL);
+ 		ret = UPNP_E_INVALID_DESC;
+ 		goto error_handler;
+ 	}
++*/
++
++	/* just read the same buffer again */
++	ixmlParseBufferEx(xml_buf, &DescDoc);
++
+ 	udn = SampleUtil_GetFirstDocumentItem(DescDoc, "UDN");
+ 	/* Find the Tv Control Service identifiers */
+ 	if (!SampleUtil_FindAndParseService(DescDoc, DescDocURL,
+@@ -288,63 +315,6 @@
+ 	return (ret);
+ }
+ 
+-int TvDeviceHandleSubscriptionRequest(const UpnpSubscriptionRequest *sr_event)
+-{
+-	unsigned int i = 0;
+-	int cmp1 = 0;
+-	int cmp2 = 0;
+-	const char *l_serviceId = NULL;
+-	const char *l_udn = NULL;
+-	const char *l_sid = NULL;
+-
+-	/* lock state mutex */
+-	ithread_mutex_lock(&TVDevMutex);
+-
+-	l_serviceId = UpnpString_get_String(UpnpSubscriptionRequest_get_ServiceId(sr_event));
+-	l_udn = UpnpSubscriptionRequest_get_UDN_cstr(sr_event);
+-	l_sid = UpnpSubscriptionRequest_get_SID_cstr(sr_event);
+-	for (i = 0; i < TV_SERVICE_SERVCOUNT; ++i) {
+-		cmp1 = strcmp(l_udn, tv_service_table[i].UDN);
+-		cmp2 = strcmp(l_serviceId, tv_service_table[i].ServiceId);
+-		if (cmp1 == 0 && cmp2 == 0) {
+-#if 0
+-			PropSet = NULL;
+-
+-			for (j = 0; j < tv_service_table[i].VariableCount; ++j) {
+-				/* add each variable to the property set */
+-				/* for initial state dump */
+-				UpnpAddToPropertySet(&PropSet,
+-						     tv_service_table[i].
+-						     VariableName[j],
+-						     tv_service_table[i].
+-						     VariableStrVal[j]);
+-			}
+-
+-			/* dump initial state  */
+-			UpnpAcceptSubscriptionExt(device_handle,
+-						  l_udn,
+-						  l_serviceId, PropSet, l_sid);
+-			/* free document */
+-			Document_free(PropSet);
+-#endif
+-			UpnpAcceptSubscription(device_handle,
+-					       l_udn,
+-					       l_serviceId,
+-					       (const char **)
+-					       tv_service_table[i].VariableName,
+-					       (const char **)
+-					       tv_service_table
+-					       [i].VariableStrVal,
+-					       tv_service_table[i].
+-					       VariableCount, l_sid);
+-		}
+-	}
+-
+-	ithread_mutex_unlock(&TVDevMutex);
+-
+-	return 1;
+-}
+-
+ int TvDeviceHandleGetVarRequest(UpnpStateVarRequest *cgv_event)
+ {
+ 	unsigned int i = 0;
+@@ -1265,9 +1235,6 @@
+ int TvDeviceCallbackEventHandler(Upnp_EventType EventType, const void *Event, void *Cookie)
+ {
+ 	switch (EventType) {
+-	case UPNP_EVENT_SUBSCRIPTION_REQUEST:
+-		TvDeviceHandleSubscriptionRequest((UpnpSubscriptionRequest *)Event);
+-		break;
+ 	case UPNP_CONTROL_GET_VAR_REQUEST:
+ 		TvDeviceHandleGetVarRequest((UpnpStateVarRequest *)Event);
+ 		break;
+@@ -1275,6 +1242,7 @@
+ 		TvDeviceHandleActionRequest((UpnpActionRequest *)Event);
+ 		break;
+ 		/* ignore these cases, since this is not a control point */
++	case UPNP_EVENT_SUBSCRIPTION_REQUEST:
+ 	case UPNP_DISCOVERY_ADVERTISEMENT_ALIVE:
+ 	case UPNP_DISCOVERY_SEARCH_RESULT:
+ 	case UPNP_DISCOVERY_SEARCH_TIMEOUT:
+@@ -1297,168 +1265,3 @@
+ 	return 0;
+ 	Cookie = Cookie;
+ }
+-
+-int TvDeviceStart(char *ip_address, unsigned short port,
+-		  const char *desc_doc_name, const char *web_dir_path,
+-		  print_string pfun, int combo)
+-{
+-	int ret = UPNP_E_SUCCESS;
+-	char desc_doc_url[DESC_URL_SIZE];
+-
+-	ithread_mutex_init(&TVDevMutex, NULL);
+-
+-	SampleUtil_Initialize(pfun);
+-	SampleUtil_Print("Initializing UPnP Sdk with\n"
+-			 "\tipaddress = %s port = %u\n",
+-			 ip_address ? ip_address : "{NULL}", port);
+-	ret = UpnpInit2(ip_address, port);
+-	if (ret != UPNP_E_SUCCESS) {
+-		SampleUtil_Print("Error with UpnpInit2 -- %d\n", ret);
+-		UpnpFinish();
+-
+-		return ret;
+-	}
+-	ip_address = UpnpGetServerIpAddress();
+-	port = UpnpGetServerPort();
+-	SampleUtil_Print("UPnP Initialized\n"
+-			 "\tipaddress = %s port = %u\n",
+-			 ip_address ? ip_address : "{NULL}", port);
+-	if (!desc_doc_name) {
+-		if (combo) {
+-			desc_doc_name = "tvcombodesc.xml";
+-		} else {
+-			desc_doc_name = "tvdevicedesc.xml";
+-		}
+-	}
+-	if (!web_dir_path) {
+-		web_dir_path = DEFAULT_WEB_DIR;
+-	}
+-	snprintf(desc_doc_url, DESC_URL_SIZE, "http://%s:%d/%s", ip_address,
+-		 port, desc_doc_name);
+-	SampleUtil_Print("Specifying the webserver root directory -- %s\n",
+-			 web_dir_path);
+-	ret = UpnpSetWebServerRootDir(web_dir_path);
+-	if (ret != UPNP_E_SUCCESS) {
+-		SampleUtil_Print
+-		    ("Error specifying webserver root directory -- %s: %d\n",
+-		     web_dir_path, ret);
+-		UpnpFinish();
+-
+-		return ret;
+-	}
+-	SampleUtil_Print("Registering the RootDevice\n"
+-			 "\t with desc_doc_url: %s\n", desc_doc_url);
+-	ret = UpnpRegisterRootDevice(desc_doc_url, TvDeviceCallbackEventHandler,
+-				     &device_handle, &device_handle);
+-	if (ret != UPNP_E_SUCCESS) {
+-		SampleUtil_Print("Error registering the rootdevice : %d\n",
+-				 ret);
+-		UpnpFinish();
+-
+-		return ret;
+-	} else {
+-		SampleUtil_Print("RootDevice Registered\n"
+-				 "Initializing State Table\n");
+-		TvDeviceStateTableInit(desc_doc_url);
+-		SampleUtil_Print("State Table Initialized\n");
+-		ret = UpnpSendAdvertisement(device_handle, default_advr_expire);
+-		if (ret != UPNP_E_SUCCESS) {
+-			SampleUtil_Print("Error sending advertisements : %d\n",
+-					 ret);
+-			UpnpFinish();
+-
+-			return ret;
+-		}
+-		SampleUtil_Print("Advertisements Sent\n");
+-	}
+-
+-	return UPNP_E_SUCCESS;
+-}
+-
+-int TvDeviceStop(void)
+-{
+-	UpnpUnRegisterRootDevice(device_handle);
+-	UpnpFinish();
+-	SampleUtil_Finish();
+-	ithread_mutex_destroy(&TVDevMutex);
+-
+-	return UPNP_E_SUCCESS;
+-}
+-
+-void *TvDeviceCommandLoop(void *args)
+-{
+-	int stoploop = 0;
+-	char cmdline[100];
+-	char cmd[100];
+-
+-	while (!stoploop) {
+-		sprintf(cmdline, " ");
+-		sprintf(cmd, " ");
+-		SampleUtil_Print("\n>> ");
+-		/* Get a command line */
+-		char *s = fgets(cmdline, 100, stdin);
+-		if (!s)
+-			break;
+-		sscanf(cmdline, "%s", cmd);
+-		if (strcasecmp(cmd, "exit") == 0) {
+-			SampleUtil_Print("Shutting down...\n");
+-			TvDeviceStop();
+-			exit(0);
+-		} else {
+-			SampleUtil_Print("\n   Unknown command: %s\n\n", cmd);
+-			SampleUtil_Print("   Valid Commands:\n"
+-					 "     Exit\n\n");
+-		}
+-	}
+-
+-	return NULL;
+-	args = args;
+-}
+-
+-int device_main(int argc, char *argv[])
+-{
+-	unsigned int portTemp = 0;
+-	char *ip_address = NULL;
+-	char *desc_doc_name = NULL;
+-	char *web_dir_path = NULL;
+-	unsigned short port = 0;
+-	int i = 0;
+-
+-	SampleUtil_Initialize(linux_print);
+-	/* Parse options */
+-	for (i = 1; i < argc; i++) {
+-		if (strcmp(argv[i], "-ip") == 0) {
+-			ip_address = argv[++i];
+-		} else if (strcmp(argv[i], "-port") == 0) {
+-			sscanf(argv[++i], "%u", &portTemp);
+-		} else if (strcmp(argv[i], "-desc") == 0) {
+-			desc_doc_name = argv[++i];
+-		} else if (strcmp(argv[i], "-webdir") == 0) {
+-			web_dir_path = argv[++i];
+-		} else if (strcmp(argv[i], "-help") == 0) {
+-			SampleUtil_Print("Usage: %s -ip ipaddress -port port"
+-					 " -desc desc_doc_name -webdir web_dir_path"
+-					 " -help (this message)\n", argv[0]);
+-			SampleUtil_Print
+-			    ("\tipaddress:     IP address of the device"
+-			     " (must match desc. doc)\n"
+-			     "\t\te.g.: 192.168.0.4\n"
+-			     "\tport:          Port number to use for"
+-			     " receiving UPnP messages (must match desc. doc)\n"
+-			     "\t\te.g.: 5431\n"
+-			     "\tdesc_doc_name: name of device description document\n"
+-			     "\t\te.g.: tvdevicedesc.xml\n"
+-			     "\tweb_dir_path: Filesystem path where web files"
+-			     " related to the device are stored\n"
+-			     "\t\te.g.: /upnp/sample/tvdevice/web\n");
+-			return 1;
+-		}
+-	}
+-	port = (unsigned short)portTemp;
+-	return TvDeviceStart(ip_address, port, desc_doc_name, web_dir_path,
+-			     linux_print, 0);
+-}
+-
+-/*! @} Device Sample Module */
+-
+-/*! @} UpnpSamples */

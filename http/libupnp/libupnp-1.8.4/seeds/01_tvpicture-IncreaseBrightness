@@ -1,0 +1,6 @@
+POST /upnp/control/tvpicture1 HTTP/1.1
+Host: 192.168.1.123:12345
+Content-Length: 327
+Content-Type: text/xml; charset="utf-8"
+User-Agent: OS/1.0 UPnP/1.1 Product/1.0
+SoapAction: "urn:schemas-upnp-org:service:tvpicture:1#IncreaseBrightness"
