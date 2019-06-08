@@ -413,7 +413,7 @@ sub gen_args {
 		die "invalid datatype $type\n";
 	}
 
-	# XXX adapt to generate number within range
+	# generate number (within range if specified)
 	my ($minval, $maxval);
 	my $applylimits = 0;
         if (@$allowedrange == 2) {
